@@ -16,37 +16,32 @@ def create_tables():
     """Creates the necessary database tables if they don't exist."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Check if the 'players' table exists
-    cursor.execute("SELECT to_regclass('public.players')")
-    if cursor.fetchone()[0]:
-        conn.close()
-        return # Tables already exist
-
-    # Use SERIAL for auto-incrementing primary keys in PostgreSQL
+    
+    # Use 'IF NOT EXISTS' to prevent errors on subsequent runs
     cursor.execute('''
-        CREATE TABLE seasons (
+        CREATE TABLE IF NOT EXISTS seasons (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
             is_active BOOLEAN NOT NULL
         )
     ''')
     cursor.execute('''
-        CREATE TABLE players (
+        CREATE TABLE IF NOT EXISTS players (
             id TEXT PRIMARY KEY,
             discord_id BIGINT NOT NULL UNIQUE,
             ingame_name TEXT
         )
     ''')
     cursor.execute('''
-        CREATE TABLE teams (
+        CREATE TABLE IF NOT EXISTS teams (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             season_id INTEGER,
-            FOREIGN KEY (season_id) REFERENCES seasons (id)
+            FOREIGN KEY (season_id) REFERENCES seasons (id) ON DELETE CASCADE
         )
     ''')
     cursor.execute('''
-        CREATE TABLE team_members (
+        CREATE TABLE IF NOT EXISTS team_members (
             team_id INTEGER,
             player_id TEXT,
             PRIMARY KEY (team_id, player_id),
@@ -55,7 +50,7 @@ def create_tables():
         )
     ''')
     cursor.execute('''
-        CREATE TABLE match_results (
+        CREATE TABLE IF NOT EXISTS match_results (
             id SERIAL PRIMARY KEY,
             season_id INTEGER,
             player_id TEXT,
@@ -66,6 +61,7 @@ def create_tables():
             FOREIGN KEY (player_id) REFERENCES players (id) ON DELETE CASCADE
         )
     ''')
+    
     conn.commit()
     cursor.close()
     conn.close()
