@@ -1,5 +1,6 @@
-import matplotlib.pyplot as plt
+import matplotlib
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import os
 
 def create_performance_graph(seasons, kds):
