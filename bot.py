@@ -22,7 +22,7 @@ WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", 0))
 
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True
+intents.message_content = False # Explicitly disable message content intent
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # --- AUTHORIZED ROLES ---
@@ -85,12 +85,12 @@ class TeamStatsModal(ui.Modal):
 async def on_ready():
     logging.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
     try:
+        db.create_tables() # Ensure tables exist on startup
+        logging.info("Database tables initialized/verified.")
         synced = await bot.tree.sync()
         logging.info(f"Synced {len(synced)} slash command(s) to Discord.")
     except Exception as e:
-        logging.error(f"An exception occurred during command syncing: {e}", exc_info=True)
-    db.create_tables()
-    logging.info("Database connection initialized.")
+        logging.error(f"An exception occurred during on_ready: {e}", exc_info=True)
 
 @bot.event
 async def on_member_join(member):
@@ -112,17 +112,19 @@ async def on_member_join(member):
 @bot.tree.command(name="register", description="Set your in-game name to participate in scrims.")
 @app_commands.describe(ingame_name="Your official in-game name")
 async def register(interaction: discord.Interaction, ingame_name: str):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     if db.set_ingame_name(interaction.user.id, ingame_name):
-        await interaction.response.send_message(f"Your in-game name has been set to **{ingame_name}**.", ephemeral=True)
+        await interaction.followup.send(f"Your in-game name has been set to **{ingame_name}**.") # MODIFIED
     else:
-        await interaction.response.send_message("An error occurred. Make sure you are a member of this server.", ephemeral=True)
+        await interaction.followup.send("An error occurred. Make sure you are a member of this server.") # MODIFIED
 
 @bot.tree.command(name="performance", description="View a player's performance statistics.")
 @app_commands.describe(ingame_name="The in-game name of the player", graph="Whether to show a performance graph")
 async def performance(interaction: discord.Interaction, ingame_name: str, graph: bool = False):
+    await interaction.response.defer() # MODIFIED (Public command, so ephemeral is false)
     performance_data = db.get_player_performance(ingame_name)
     if not performance_data:
-        await interaction.response.send_message(f"No performance data found for player **{ingame_name}**.")
+        await interaction.followup.send(f"No performance data found for player **{ingame_name}**.") # MODIFIED
         return
     embed = discord.Embed(title=f"Performance for {ingame_name}", color=discord.Color.blue())
     seasons, kds = [], []
@@ -136,42 +138,44 @@ async def performance(interaction: discord.Interaction, ingame_name: str, graph:
         chart_path = graphing.create_performance_graph(seasons, kds)
         file = discord.File(chart_path, filename="performance_graph.png")
         embed.set_image(url="attachment://performance_graph.png")
-        await interaction.response.send_message(embed=embed, file=file)
+        await interaction.followup.send(embed=embed, file=file) # MODIFIED
     else:
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed) # MODIFIED
 
 @bot.tree.command(name="leaderboard", description="Show the leaderboard for the current season.")
 async def leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer() # MODIFIED (Public command)
     leaderboard_data = db.get_leaderboard()
     season = db.get_active_season()
     if not season:
-        await interaction.response.send_message("There is no active season.", ephemeral=True)
+        await interaction.followup.send("There is no active season.", ephemeral=True) # MODIFIED
         return
     if not leaderboard_data:
-        await interaction.response.send_message("No player data available for the current season's leaderboard.", ephemeral=True)
+        await interaction.followup.send("No player data available for the current season's leaderboard.", ephemeral=True) # MODIFIED
         return
     embed = discord.Embed(title=f"Leaderboard for {season['name']}", color=discord.Color.gold())
     description = ""
     for i, row in enumerate(leaderboard_data):
-        kd_ratio = row['total_kills'] / row['total_deaths']
+        kd_ratio = row['total_kills'] / row['total_deaths'] if row['total_deaths'] > 0 else row['total_kills']
         description += f"**{i+1}. {row['ingame_name']}** - K/D: {kd_ratio:.2f}\n"
     embed.description = description
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed) # MODIFIED
 
 @bot.tree.command(name="getid", description="Displays the unique ID of a specific user.")
 @app_commands.describe(user="The user whose ID you want to see.")
 async def getid(interaction: discord.Interaction, user: discord.Member):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     player_data = db.get_player_by_discord_id(user.id)
     if player_data:
-        await interaction.response.send_message(f"The ID for {user.mention} is **#{player_data['id']}**.", ephemeral=True)
+        await interaction.followup.send(f"The ID for {user.mention} is **#{player_data['id']}**.") # MODIFIED
     else:
-        await interaction.response.send_message(f"{user.mention} does not have an ID assigned yet.", ephemeral=True)
+        await interaction.followup.send(f"{user.mention} does not have an ID assigned yet.") # MODIFIED
 
 # --- ADMIN COMMANDS ---
 @bot.tree.command(name="assign_existing", description="[Admin] Assigns IDs to all existing members who don't have one.")
 @app_commands.check(has_authorized_role)
 async def assign_existing(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=True) # Already had this, confirmed correct.
     logging.info(f"Admin command /assign_existing triggered by {interaction.user}.")
     assigned_count = 0
     guild = interaction.guild
@@ -187,18 +191,18 @@ async def assign_existing(interaction: discord.Interaction):
 @app_commands.describe(team1_name="Name of the first team", team2_name="Name of the second team", team1_score="Final score for team 1", team2_score="Final score for team 2")
 @app_commands.check(has_authorized_role)
 async def recordmatch(interaction: discord.Interaction, team1_name: str, team2_name: str, team1_score: int, team2_score: int):
+    # This command responds instantly with a Modal, so no defer is needed here.
     view = discord.ui.View(timeout=None)
     view.team2_name = team2_name
     await interaction.response.send_modal(TeamStatsModal(team_name=team1_name, view=view))
 
-# ... (Other admin commands remain the same, just with logging added)
-
 @bot.tree.command(name="createseason", description="[Admin] Create a new scrims season.")
 @app_commands.check(has_authorized_role)
 async def createseason(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     db.create_season(name)
     logging.info(f"Season '{name}' created by {interaction.user}.")
-    await interaction.response.send_message(f"Season '{name}' has been created and set as the active season.", ephemeral=True)
+    await interaction.followup.send(f"Season '{name}' has been created and set as the active season.") # MODIFIED
 
 @bot.tree.command(name="deleteseason", description="[Admin] Delete a season and all its data.")
 @app_commands.check(has_authorized_role)
@@ -206,56 +210,63 @@ async def deleteseason(interaction: discord.Interaction, name: str):
     view = discord.ui.View()
     confirm_button = discord.ui.Button(label="Confirm Delete", style=discord.ButtonStyle.danger)
     cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+    
     async def confirm_callback(interaction: discord.Interaction):
+        await interaction.response.defer() # MODIFIED: Defer the button response
         if db.delete_season(name):
             logging.warning(f"Season '{name}' and all its data was deleted by {interaction.user}.")
-            await interaction.response.edit_message(content=f"Season '{name}' deleted.", view=None)
+            await interaction.edit_original_response(content=f"Season '{name}' deleted.", view=None)
         else:
-            await interaction.response.edit_message(content=f"Could not find season '{name}'.", view=None)
+            await interaction.edit_original_response(content=f"Could not find season '{name}'.", view=None)
+
     async def cancel_callback(interaction: discord.Interaction):
         await interaction.response.edit_message(content="Deletion cancelled.", view=None)
+
     confirm_button.callback = confirm_callback
     cancel_button.callback = cancel_callback
     view.add_item(confirm_button)
     view.add_item(cancel_button)
+    # The initial response is instant, so no defer needed here.
     await interaction.response.send_message(f"**WARNING:** Are you sure you want to delete '{name}'? This is permanent.", view=view, ephemeral=True)
 
-# ... (rest of the admin commands are similar)
 @bot.tree.command(name="createteam", description="[Admin] Create a new team for the current season.")
 @app_commands.check(has_authorized_role)
 async def createteam(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     season = db.get_active_season()
     if not season:
-        await interaction.response.send_message("There is no active season.", ephemeral=True)
+        await interaction.followup.send("There is no active season.") # MODIFIED
         return
     db.create_team(name, season['id'])
     logging.info(f"Team '{name}' created by {interaction.user} for season {season['name']}.")
-    await interaction.response.send_message(f"Team '{name}' has been created for the current season.", ephemeral=True)
+    await interaction.followup.send(f"Team '{name}' has been created for the current season.") # MODIFIED
 
 @bot.tree.command(name="assignteam", description="[Admin] Assign a player to a team.")
 @app_commands.check(has_authorized_role)
 async def assignteam(interaction: discord.Interaction, player_id: str, team_name: str):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     season = db.get_active_season()
     if not season:
-        await interaction.response.send_message("There is no active season.", ephemeral=True)
+        await interaction.followup.send("There is no active season.") # MODIFIED
         return
     result = db.assign_player_to_team(player_id, team_name, season['id'])
-    if result == "SUCCESS": await interaction.response.send_message(f"Player {player_id} assigned to team {team_name}.", ephemeral=True)
-    elif result == "TEAM_FULL": await interaction.response.send_message(f"Team {team_name} is full.", ephemeral=True)
-    elif result == "ALREADY_IN_TEAM": await interaction.response.send_message(f"Player {player_id} is already in a team.", ephemeral=True)
-    else: await interaction.response.send_message(f"Team {team_name} not found in current season.", ephemeral=True)
+    if result == "SUCCESS": await interaction.followup.send(f"Player {player_id} assigned to team {team_name}.") # MODIFIED
+    elif result == "TEAM_FULL": await interaction.followup.send(f"Team {team_name} is full.") # MODIFIED
+    elif result == "ALREADY_IN_TEAM": await interaction.followup.send(f"Player {player_id} is already in a team.") # MODIFIED
+    else: await interaction.followup.send(f"Team {team_name} not found in current season.") # MODIFIED
 
 @bot.tree.command(name="unassignteam", description="[Admin] Unassign a player from a team.")
 @app_commands.check(has_authorized_role)
 async def unassignteam(interaction: discord.Interaction, player_id: str, team_name: str):
+    await interaction.response.defer(ephemeral=True) # MODIFIED
     season = db.get_active_season()
     if not season:
-        await interaction.response.send_message("There is no active season.", ephemeral=True)
+        await interaction.followup.send("There is no active season.") # MODIFIED
         return
     if db.unassign_player_from_team(player_id, team_name, season['id']):
-        await interaction.response.send_message(f"Player {player_id} unassigned from team {team_name}.", ephemeral=True)
+        await interaction.followup.send(f"Player {player_id} unassigned from team {team_name}.") # MODIFIED
     else:
-        await interaction.response.send_message(f"Could not unassign player {player_id}.", ephemeral=True)
+        await interaction.followup.send(f"Could not unassign player {player_id}.") # MODIFIED
         
 # Generic error handlers for check failures
 admin_commands = [assign_existing, recordmatch, createseason, deleteseason, createteam, assignteam, unassignteam]
@@ -264,12 +275,18 @@ for command in admin_commands:
     async def on_admin_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):
             logging.warning(f"User {interaction.user} (ID: {interaction.user.id}) tried to use an admin command without permission: {interaction.command.name}")
-            await interaction.response.send_message("You do not have the required role to use this command.", ephemeral=True)
+            # Check if we already deferred before sending the error message
+            if interaction.response.is_done():
+                await interaction.followup.send("You do not have the required role to use this command.", ephemeral=True)
+            else:
+                await interaction.response.send_message("You do not have the required role to use this command.", ephemeral=True)
         else:
             logging.error(f"An unhandled error occurred in command {interaction.command.name}: {error}", exc_info=True)
-            if not interaction.response.is_done():
+            # Check if we already deferred before sending the error message
+            if interaction.response.is_done():
+                await interaction.followup.send("An unexpected error occurred. Please contact an admin.", ephemeral=True)
+            else:
                 await interaction.response.send_message("An unexpected error occurred. Please contact an admin.", ephemeral=True)
-
 
 # --- RUN BOT ---
 if __name__ == '__main__':
