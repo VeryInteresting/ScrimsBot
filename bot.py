@@ -188,9 +188,9 @@ async def assign_existing(interaction: discord.Interaction):
     await interaction.followup.send(f"Process complete. Assigned new IDs to {assigned_count} existing members.")
 
 @bot.tree.command(name="recordmatch", description="[Admin] Record the results of a 5v5 match using pop-up forms.")
-@app_commands.describe(team1_name="Name of the first team", team2_name="Name of the second team", team1_score="Final score for team 1", team2_score="Final score for team 2")
+@app_commands.describe(team1_name="Name of the first team", team2_name="Name of the second team")
 @app_commands.check(has_authorized_role)
-async def recordmatch(interaction: discord.Interaction, team1_name: str, team2_name: str, team1_score: int, team2_score: int):
+async def recordmatch(interaction: discord.Interaction, team1_name: str, team2_name: str):
     # This command responds instantly with a Modal, so no defer is needed here.
     view = discord.ui.View(timeout=None)
     view.team2_name = team2_name
