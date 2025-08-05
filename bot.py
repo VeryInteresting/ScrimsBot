@@ -89,7 +89,7 @@ async def on_ready():
         logging.info(f"Synced {len(synced)} slash command(s) to Discord.")
     except Exception as e:
         logging.error(f"An exception occurred during command syncing: {e}", exc_info=True)
-    db.get_db_connection()
+    db.create_tables()
     logging.info("Database connection initialized.")
 
 @bot.event
